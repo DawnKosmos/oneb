@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>oneb · Chat</title>
+<style>
+:root{color-scheme:light;--ink:#202927;--muted:#6c7771;--line:#dce2dd;--accent:#20664f;--paper:#fbfcf9;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink)}header{height:88px;display:flex;align-items:center;justify-content:space-between;padding:0 5vw;border-bottom:1px solid var(--line);gap:16px}.brand{font-weight:650;font-size:22px;letter-spacing:-1px}.brand span{font-size:14px;color:var(--muted);font-weight:400;letter-spacing:0;margin-left:16px}.account{display:flex;gap:16px;align-items:center;font-size:13px;color:var(--muted)}button,select,textarea{font:inherit}button{cursor:pointer;border:1px solid var(--line);background:white;border-radius:9px;padding:10px 15px;color:var(--ink)}button:hover{border-color:var(--accent)}button:disabled{opacity:.5;cursor:default}button.primary{background:var(--accent);color:white;border-color:var(--accent)}main{max-width:820px;margin:auto;padding:42px 24px 24px}.toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:30px}.selectors{display:flex;flex-wrap:wrap;gap:16px}.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin:0 0 8px}select{background:transparent;border:1px solid var(--line);border-radius:8px;padding:9px;max-width:280px;color:var(--ink)}a{color:var(--accent);font-size:12px}.welcome{text-align:center;padding:14vh 0 12vh}.welcome h1{font-size:clamp(30px,5vw,44px);font-weight:500;letter-spacing:-1.8px;margin:0 0 14px}.welcome p{color:var(--muted);line-height:1.7;margin:0 auto 24px;max-width:420px}.welcome .note{font-size:12px;margin-top:18px}#messages{display:flex;flex-direction:column;gap:26px;min-height:100px;padding-bottom:24px}.message{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;font-size:15px}.message.user{background:#edf1e9;padding:16px 20px;border-radius:14px;align-self:flex-end;max-width:85%}.message.assistant{padding:2px 0}.label{white-space:normal;display:block;font-size:11px;color:var(--muted);margin-bottom:8px;letter-spacing:.4px}.compose{position:sticky;bottom:16px;border:1px solid var(--line);border-radius:16px;background:white;box-shadow:0 8px 30px #20372b08;padding:16px;display:flex;gap:16px;align-items:flex-end}textarea{resize:vertical;min-height:70px;max-height:240px;width:100%;border:0;outline:none;background:white;color:var(--ink);line-height:1.5}.compose button{flex-shrink:0}.hint{text-align:center;color:var(--muted);font-size:11px;margin:12px 0 0}#error{color:#9d352d;font-size:13px;line-height:1.6;padding:12px 0;white-space:pre-wrap}#busy{font-size:13px;color:var(--muted);padding:0 0 20px}[hidden]{display:none!important}@media(max-width:600px){header{height:auto;min-height:80px;padding:18px 24px;flex-wrap:wrap}.brand span{display:none}.account{gap:10px}main{padding-top:28px}.toolbar{align-items:flex-start;flex-wrap:wrap}select{max-width:210px}.welcome{padding:10vh 0}.compose{gap:8px}.compose button{padding:10px}.account #email{max-width:180px;overflow:hidden;text-overflow:ellipsis}}
+</style>
+</head>
+<body>
+<header><div class="brand">oneb<span>A simple conversation.</span></div><div class="account"><span id="email"></span><button id="logout" hidden>Sign out</button></div></header>
+<main>
+ <div class="toolbar" id="toolbar" hidden><div class="selectors"><div><p class="eyebrow">Your model</p><select id="model" aria-label="Chat model"></select></div><div><p class="eyebrow">Thinking mode</p><select id="thinking" aria-label="Thinking mode"></select></div></div><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">ChatGPT plan usage ↗</a></div>
+ <p id="model-note" class="hint" role="status" hidden></p>
+ <section class="welcome" id="welcome"><p class="eyebrow">oneb chat</p><h1>What’s on your mind?</h1><p>Connect your ChatGPT account, choose a model, and start a conversation.</p><button class="primary" id="signin">Continue with ChatGPT</button><p class="note">Uses your eligible ChatGPT plan. Your conversation is saved on this computer.</p></section>
+ <div id="error" role="alert" hidden></div>
+ <section id="messages" aria-label="Conversation" aria-live="polite" hidden></section>
+ <div id="busy" role="status" hidden>Thinking…</div>
+ <form id="form" hidden><div class="compose"><textarea id="prompt" aria-label="Message" placeholder="Write a message…" maxlength="32000" rows="3" required></textarea><button class="primary" id="send" type="submit">Send ↑</button></div><p class="hint">Enter to send · Shift + Enter for a new line</p></form>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let nextID=0,working=false,modelCatalog=[];
+function updateThinking(){
+ const previous=$('thinking').value||'medium';
+ const selected=modelCatalog.find(m=>m.slug===$('model').value);
+ const efforts=selected?.reasoning_efforts||[];
+ $('model-note').hidden=!selected||selected.catalog_listed;
+ $('model-note').textContent=selected&&!selected.catalog_listed?'This model is not listed for your ChatGPT account. Sending a message will check whether access is available.':'';
+ const labels={none:'Off',low:'Low',medium:'Medium',high:'High',xhigh:'Extra high',max:'Max'};
+ $('thinking').replaceChildren();
+ for(const effort of efforts){const option=document.createElement('option');option.value=effort;option.textContent=labels[effort]||effort;$('thinking').append(option);}
+ $('thinking').value=efforts.includes(previous)?previous:'medium';
+ setWorking(working);
+}
+$('model').onchange=updateThinking;
+async function rpc(method,params={}){
+ const res=await fetch('/rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:++nextID,method,params})});
+ if(!res.ok)throw new Error('Request failed ('+res.status+'). Refresh this page and try again.');
+ const body=await res.json();if(body.error)throw new Error(body.error.message);return body.result;
+}
+function error(e){$('error').textContent=e?.message||String(e);$('error').hidden=false;}
+function clearError(){$('error').hidden=true;$('error').textContent='';}
+function addMessage(m){const el=document.createElement('div');el.className='message '+m.role;const label=document.createElement('span');label.className='label';label.textContent=m.role==='user'?'You':m.model;el.append(label,document.createTextNode(m.content));$('messages').append(el);}
+function setWorking(value){working=value;$('send').disabled=value||!$('model').value||!$('thinking').value;$('model').disabled=value;$('thinking').disabled=value;$('logout').disabled=value;$('prompt').disabled=value;$('busy').hidden=!value;}
+async function init(){
+ try{
+  const s=await rpc('auth/status');$('email').textContent=s.signed_in?s.email:'';$('logout').hidden=!s.signed_in;$('welcome').hidden=s.signed_in;$('model-note').hidden=true;$('toolbar').hidden=!s.signed_in;$('messages').hidden=!s.signed_in;$('form').hidden=!s.signed_in;
+  if(!s.signed_in)return;
+  $('send').disabled=true;
+  const [models,history]=await Promise.all([rpc('models/list'),rpc('chat/history')]);
+  modelCatalog=models;
+  $('model').replaceChildren();for(const m of models){const option=document.createElement('option');option.value=m.slug;option.textContent=(m.display_name||m.slug)+(m.catalog_listed?'':' (not listed)');$('model').append(option);}
+  $('messages').replaceChildren();history.forEach(addMessage);
+  const last=history.at(-1)?.model;if(last&&models.some(m=>m.slug===last))$('model').value=last;
+  if(!models.length)throw new Error('GPT 5.6 Luna and GPT 6.1 Sol are unavailable for this account. Check your ChatGPT plan permissions.');
+  updateThinking();
+  setWorking(false);$('prompt').focus();
+ }catch(e){error(e);}
+}
+$('signin').onclick=async()=>{clearError();$('signin').disabled=true;try{const result=await rpc('auth/start');location.assign(result.url);}catch(e){error(e);$('signin').disabled=false;}};
+$('logout').onclick=async()=>{clearError();$('logout').disabled=true;try{const result=await rpc('auth/logout');await init();if(result.warning)error(new Error(result.warning));}catch(e){error(e);}finally{$('logout').disabled=false;}};
+$('form').onsubmit=async event=>{
+ event.preventDefault();if(working)return;
+ const text=$('prompt').value.trim(),model=$('model').value,reasoning_effort=$('thinking').value;if(!text||!model||!reasoning_effort)return;
+ clearError();setWorking(true);
+ const previous=$('messages').childElementCount;addMessage({role:'user',content:text,model});$('busy').scrollIntoView({block:'nearest'});
+ try{const reply=await rpc('chat/send',{message:text,model,reasoning_effort});addMessage(reply);$('prompt').value='';}
+ catch(e){while($('messages').childElementCount>previous)$('messages').lastChild.remove();error(e);}
+ finally{setWorking(false);$('prompt').focus();$('form').scrollIntoView({block:'nearest'});}
+};
+$('prompt').onkeydown=event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();$('form').requestSubmit();}};
+init();
+</script>
+</body>
+</html>
